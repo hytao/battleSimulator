@@ -25,6 +25,7 @@ def safe_percentage(value, default=0.0):
 
 def distance(unit1, unit2):
     return abs(unit1.row - unit2.row) + abs(unit1.col - unit2.col)
+
 def get_vigor_bonus(moral):
     if moral >= 12:
         return 30
@@ -34,23 +35,24 @@ def get_vigor_bonus(moral):
         return 10
     else:
         return 0
+
 def selectTarget(attacker, enemies):
     max_attack_range = attacker.move + attacker.longest_weapon_range
     print(f"{attacker.name} 射程 {max_attack_range}")
     in_range_targets = [
         enemy for enemy in enemies
-        if enemy.hp > 0 and distance(attacker, enemy) <= max_attack_range
+        if enemy.current_hp > 0 and distance(attacker, enemy) <= max_attack_range
     ]
     for enemy in enemies:
-      print(f"{enemy.name} 距離 {distance(attacker, enemy)}")
+        print(f"{enemy.name} 距離 {distance(attacker, enemy)}")
     if in_range_targets:
         # 找到可攻擊目標：血量最低者
-        target = min(in_range_targets, key=lambda e: e.hp)
+        target = min(in_range_targets, key=lambda e: e.current_hp)
         print(f"{target.name} 距離 {distance(attacker, target)}")
         return target, True
     else:
         # 找到距離最近的敵人作為移動目標（不攻擊）
-        alive_enemies = [e for e in enemies if e.hp > 0]
+        alive_enemies = [e for e in enemies if e.current_hp > 0]
         if not alive_enemies:
             return None, False
         nearest = min(alive_enemies, key=lambda e: distance(attacker, e))
@@ -123,9 +125,9 @@ def damageCalculation(attacker, defender, use_max_weapon=True, defense_type="否
     defenderCharacterDef = defender.pilot.defense
     attackerUnitAtk = attacker.atk
     if defense_type == "支援防禦":
-      defenderUnitDef = math.floor(defender.defense+defender.pilot.support_defense_mod*defender.base_def)
+        defenderUnitDef = math.floor(defender.defense+defender.pilot.support_defense_mod*defender.base_def)
     else:
-      defenderUnitDef = defender.defense
+        defenderUnitDef = defender.defense
     print(f"char def {defenderCharacterDef}")
     print(f"defender.defense {defender.defense}")
     print(f"defender.base_def {defender.base_def}")
@@ -164,9 +166,9 @@ def damageCalculation(attacker, defender, use_max_weapon=True, defense_type="否
     print(f"totalDamageMultiplierPercent {totalDamageMultiplierPercent}")
     scaledDamage = math.ceil((totalDamageMultiplierPercent * battleDamage) / 100.0)
     if defense_type == "否":
-      defensiveCorrection = 1
+        defensiveCorrection = 1
     else:
-      defensiveCorrection = defender.pilot.defensiveCorrection
+        defensiveCorrection = defender.pilot.defensiveCorrection
     combinedDamage = (battleDamage + scaledDamage) * defensiveCorrection
 
     criticalCorrectionPercent = 0
@@ -181,7 +183,7 @@ def printMap(units):
     grid = [[' ' * cell_width for _ in range(cols)] for _ in range(rows)]
 
     for unit in units:
-        if unit.hp <= 0:
+        if unit.current_hp <= 0:
             continue  # 跳過已擊毀單位
         r, c = unit.row - 1, unit.col - 1  # 轉為 0-based index
         if 0 <= r < rows and 0 <= c < cols:
@@ -203,6 +205,7 @@ def printMap(units):
     for c in range(1, cols + 1):
         print(str(c).center(cell_width), end="")
     print("\n")
+
 # === 類別定義 ===
 
 class Pilot:
@@ -236,7 +239,8 @@ class Unit:
         self.atk = safe_int(row.get('ATK'))
         self.defense = safe_int(row.get('DEF'))
         self.mobility = safe_int(row.get('MOB'))
-        self.hp = safe_int(row.get('HP'))
+        self.hp = safe_int(row.get('HP'))  # Initial/Max HP
+        self.current_hp = self.hp  # Real-time HP, starts at max
         self.base_atk = math.floor(safe_int(row.get('atk(base)'))*(1+safe_percentage(row.get('突破'))))
         self.base_def = math.floor(safe_int(row.get('def(base)'))*(1+safe_percentage(row.get('突破'))))
         self.base_mob = math.floor(safe_int(row.get('mob(base)'))*(1+safe_percentage(row.get('突破'))))
@@ -257,6 +261,28 @@ class Unit:
         # 新增屬性 (稍後由 Team 指派)
         self.row = None
         self.col = None
+
+    def heal(self, amount):
+        """Heal the unit, but don't exceed max HP"""
+        self.current_hp = min(self.hp, self.current_hp + amount)
+        return self.current_hp
+
+    def take_damage(self, damage):
+        """Apply damage to current HP"""
+        self.current_hp = max(0, self.current_hp - damage)
+        return self.current_hp
+
+    def is_alive(self):
+        """Check if unit is still alive"""
+        return self.current_hp > 0
+
+    def get_hp_percentage(self):
+        """Get current HP as percentage of max HP"""
+        return (self.current_hp / self.hp) * 100 if self.hp > 0 else 0
+
+    def reset_hp(self):
+        """Reset current HP to max HP"""
+        self.current_hp = self.hp
 
 class Team:
     def __init__(self, name, unit_rows):
@@ -282,10 +308,10 @@ class Battleground:
 # === 戰鬥主流程 ===
 
 def Action(attacker, allies, enemies):
-    if attacker.hp <= 0:
+    if attacker.current_hp <= 0:
         return
 
-    print(f"\n--- {attacker.name} 開始行動 (HP: {attacker.hp}) ---")
+    print(f"\n--- {attacker.name} 開始行動 (HP: {attacker.current_hp}/{attacker.hp}) ---")
     printMap(allies + enemies)
 
     target, can_attack = selectTarget(attacker, enemies)
@@ -302,18 +328,18 @@ def Action(attacker, allies, enemies):
     # === 支援防禦判斷 ===
     potential_defenders = [
         unit for unit in enemies
-        if unit.hp > 0 and unit != target
+        if unit.current_hp > 0 and unit != target
         and unit.pilot.support_defense > 0
         and distance(unit, target) <= unit.move
     ]
     support_defender = None
     for unit in potential_defenders:
         dmg = damageCalculation(attacker, unit, use_max_weapon, "支援防禦")
-        if dmg < unit.hp:
+        if dmg < unit.current_hp:
             support_defender = unit
             break
     if not support_defender and potential_defenders:
-        support_defender = max(potential_defenders, key=lambda u: u.hp)
+        support_defender = max(potential_defenders, key=lambda u: u.current_hp)
 
     if support_defender:
         real_target = support_defender
@@ -324,7 +350,7 @@ def Action(attacker, allies, enemies):
         # === 自我防禦判斷 ===
         can_counter = distance(target, attacker) <= target.longest_weapon_range
         dmg_if_defend = damageCalculation(attacker, target, use_max_weapon, "防禦")
-        if dmg_if_defend < target.hp and not can_counter:
+        if dmg_if_defend < target.current_hp and not can_counter:
             defense_type = "防禦"
         else:
             defense_type = "否"
@@ -332,13 +358,13 @@ def Action(attacker, allies, enemies):
     # === 支援攻擊選擇 ===
     all_support = [
         unit for unit in allies
-        if unit.hp > 0 and unit != attacker
+        if unit.current_hp > 0 and unit != attacker
         and unit.pilot.support_attack > 0
         and distance(unit, real_target) <= unit.longest_weapon_range
     ]
     sorted_support = sorted(all_support, key=lambda u: -u.mobility)
     valid_support = []
-    hp_check = real_target.hp
+    hp_check = real_target.current_hp
     for unit in sorted_support:
         dmg = damageCalculation(unit, real_target, True, defense_type)
         if dmg >= hp_check:
@@ -351,20 +377,20 @@ def Action(attacker, allies, enemies):
     # === 實際套用支援攻擊與主攻擊 ===
     for unit in valid_support:
         dmg = damageCalculation(unit, real_target, True, defense_type)
-        real_target.hp -= dmg
-        print(f"{unit.name} 支援攻擊 {real_target.name} 造成 {dmg} 傷害")
-        if real_target.hp <= 0:
+        real_target.take_damage(dmg)
+        print(f"{unit.name} 支援攻擊 {real_target.name} 造成 {dmg} 傷害 (剩餘 {real_target.current_hp}/{real_target.hp})")
+        if real_target.current_hp <= 0:
             print(f"{real_target.name} 被擊毀")
             break
 
-    if real_target.hp > 0:
+    if real_target.current_hp > 0:
         dmg = damageCalculation(attacker, real_target, use_max_weapon, defense_type)
-        real_target.hp -= dmg
-        print(f"{attacker.name} 攻擊 {real_target.name} 造成 {dmg} 傷害")
-        if real_target.hp <= 0:
+        real_target.take_damage(dmg)
+        print(f"{attacker.name} 攻擊 {real_target.name} 造成 {dmg} 傷害 (剩餘 {real_target.current_hp}/{real_target.hp})")
+        if real_target.current_hp <= 0:
             print(f"{real_target.name} 被擊毀")
 
-    initial_target_dead = target.hp <= 0
+    initial_target_dead = target.current_hp <= 0
     printMap(allies + enemies)
 
     # === 反擊階段 ===
@@ -372,13 +398,13 @@ def Action(attacker, allies, enemies):
         counter_defense_type = "否"
         counter_support = [
             unit for unit in enemies
-            if unit.hp > 0 and unit != target
+            if unit.current_hp > 0 and unit != target
             and unit.pilot.support_attack > 0
             and distance(unit, attacker) <= unit.longest_weapon_range
         ]
         sorted_counter = sorted(counter_support, key=lambda u: -u.mobility)
         valid_counter = []
-        atk_hp_check = attacker.hp
+        atk_hp_check = attacker.current_hp
         for unit in sorted_counter:
             dmg = damageCalculation(unit, attacker, True, counter_defense_type)
             if dmg >= atk_hp_check:
@@ -390,22 +416,22 @@ def Action(attacker, allies, enemies):
 
         for unit in valid_counter:
             dmg = damageCalculation(unit, attacker, True, counter_defense_type)
-            attacker.hp -= dmg
-            print(f"{unit.name} 支援反擊 {attacker.name} 造成 {dmg} 傷害")
-            if attacker.hp <= 0:
+            attacker.take_damage(dmg)
+            print(f"{unit.name} 支援反擊 {attacker.name} 造成 {dmg} 傷害 (剩餘 {attacker.current_hp}/{attacker.hp})")
+            if attacker.current_hp <= 0:
                 print(f"{attacker.name} 被擊毀")
                 break
 
-        if attacker.hp > 0:
+        if attacker.current_hp > 0:
             dmg = damageCalculation(target, attacker, True, counter_defense_type)
-            attacker.hp -= dmg
-            print(f"{target.name} 反擊 {attacker.name} 造成 {dmg} 傷害")
-            if attacker.hp <= 0:
+            attacker.take_damage(dmg)
+            print(f"{target.name} 反擊 {attacker.name} 造成 {dmg} 傷害 (剩餘 {attacker.current_hp}/{attacker.hp})")
+            if attacker.current_hp <= 0:
                 print(f"{attacker.name} 被擊毀")
 
     printMap(allies + enemies)
 
-    if attacker.hp > 0 and initial_target_dead and attacker.pilot.chanceStage > 0:
+    if attacker.current_hp > 0 and initial_target_dead and attacker.pilot.chanceStage > 0:
         attacker.pilot.chanceStage -= 1
         print(f"{attacker.name} 擊破敵人，剩餘行動次數 {attacker.pilot.chanceStage}")
         Action(attacker, allies, enemies)
@@ -426,7 +452,7 @@ battleground = Battleground(team_a_rows, team_b_rows)
 
 # 依行動順序執行
 all_units = battleground.team_a.units + battleground.team_b.units
-sorted_units = sorted([u for u in all_units if u.hp > 0], key=lambda u: u.action_order)
+sorted_units = sorted([u for u in all_units if u.current_hp > 0], key=lambda u: u.action_order)
 attacker = battleground.team_a.units[3]
 # 執行所有行動
 for unit in sorted_units:
