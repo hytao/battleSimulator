@@ -1949,58 +1949,77 @@ def Action(attacker, allies, enemies):
 
     # === 反擊階段 (優化版) ===
     if not initial_target_dead:
-        stage_info = f"反擊階段 - {target.name} vs {attacker.name}"
-        battle_ended = printMap(all_units, "\n".join(action_log), active_unit=target, target_unit=attacker, 
-                               stage_info=stage_info, dead_units=dead_units)
-        if battle_ended:
-            return True
-            
-        counter_defense_type = "否"
-        valid_counter = optimize_counter_attacks(target, enemies, attacker, counter_defense_type, action_log)
+        # Check if target can actually counter attack (within range AND not defending)
+        can_counter = distance(target, attacker) <= target.longest_weapon_range
+        target_is_defending = defense_type == "防禦"
+        
+        if can_counter and not target_is_defending:
+            stage_info = f"反擊階段 - {target.name} vs {attacker.name}"
+            battle_ended = printMap(all_units, "\n".join(action_log), active_unit=target, target_unit=attacker, 
+                                   stage_info=stage_info, dead_units=dead_units)
+            if battle_ended:
+                return True
+                
+            counter_defense_type = "否"
+            valid_counter = optimize_counter_attacks(target, enemies, attacker, counter_defense_type, action_log)
+        elif target_is_defending:
+            log_action(action_log, f"{target.name} 無法反擊 - 選擇防禦")
+            valid_counter = []
+        else:
+            log_action(action_log, f"{target.name} 無法反擊 - 攻擊者超出射程範圍 (距離: {distance(target, attacker)}, 射程: {target.longest_weapon_range})")
+            valid_counter = []
 
         # Execute counter support attacks
         attacker_killed_by_counter_support = False
-        for unit in valid_counter:
-            attacker_hp_before = attacker.current_hp
-            dmg, debug_info = damageCalculation(unit, attacker, True, counter_defense_type, return_debug_info=True, action_log=action_log)
-            attacker.take_damage(dmg)
-            add_counter_damage_to_summary(unit.name, dmg, attacker.name)
-            # Apply status effects only if HP was successfully reduced
-            effects_applied = apply_status_effects_if_damage_dealt(unit, attacker, True, dmg, attacker_hp_before)
-            
-            log_action(action_log, f"{unit.name} 支援反擊 {attacker.name} 造成 {dmg} 傷害")
-            log_debug(action_log, f"基礎傷害: {debug_info['baseDamage']}, 武器: {debug_info['weapon_power']}, ATK: {debug_info['attackerUnitAtk']}, DEF: {debug_info['defenderUnitDef']}, charAtk: {debug_info['attackerCharacterAtk']}, charDef: {debug_info['defenderCharacterDef']}, totalDamageMultiplierPercent: {debug_info['totalDamageMultiplierPercent']}, 剩餘 {attacker.current_hp}/{attacker.hp}, 剩餘支援攻擊次數: {unit.pilot.support_attack-1}")
-            if effects_applied:
-                log_debug(action_log, "狀態效果已套用")
-            
-            # Decrement support attack count
-            unit.pilot.support_attack -= 1
-            if attacker.current_hp <= 0:
-                log_action(action_log, f"{attacker.name} 被支援反擊擊毀")
-                dead_units.append(attacker)
-                attacker_killed_by_counter_support = True
-                break
+        if can_counter and not target_is_defending:
+            for unit in valid_counter:
+                attacker_hp_before = attacker.current_hp
+                dmg, debug_info = damageCalculation(unit, attacker, True, counter_defense_type, return_debug_info=True, action_log=action_log)
+                attacker.take_damage(dmg)
+                add_counter_damage_to_summary(unit.name, dmg, attacker.name)
+                # Apply status effects only if HP was successfully reduced
+                effects_applied = apply_status_effects_if_damage_dealt(unit, attacker, True, dmg, attacker_hp_before)
+                
+                log_action(action_log, f"{unit.name} 支援反擊 {attacker.name} 造成 {dmg} 傷害")
+                log_debug(action_log, f"基礎傷害: {debug_info['baseDamage']}, 武器: {debug_info['weapon_power']}, ATK: {debug_info['attackerUnitAtk']}, DEF: {debug_info['defenderUnitDef']}, charAtk: {debug_info['attackerCharacterAtk']}, charDef: {debug_info['defenderCharacterDef']}, totalDamageMultiplierPercent: {debug_info['totalDamageMultiplierPercent']}, 剩餘 {attacker.current_hp}/{attacker.hp}, 剩餘支援攻擊次數: {unit.pilot.support_attack-1}")
+                if effects_applied:
+                    log_debug(action_log, "狀態效果已套用")
+                
+                # Decrement support attack count
+                unit.pilot.support_attack -= 1
+                if attacker.current_hp <= 0:
+                    log_action(action_log, f"{attacker.name} 被支援反擊擊毀")
+                    dead_units.append(attacker)
+                    attacker_killed_by_counter_support = True
+                    break
 
-        # Main counter attack always happens, even if attacker is already dead
-        attacker_hp_before = attacker.current_hp
-        dmg, debug_info = damageCalculation(target, attacker, True, counter_defense_type, return_debug_info=True, action_log=action_log)
-        if not attacker_killed_by_counter_support:
-            attacker.take_damage(dmg)
-            add_counter_damage_to_summary(target.name, dmg, attacker.name)
-            # Apply status effects only if HP was successfully reduced
-            effects_applied = apply_status_effects_if_damage_dealt(target, attacker, True, dmg, attacker_hp_before)
+            # Main counter attack always happens when target can counter, even if attacker is already dead
+            attacker_hp_before = attacker.current_hp
+            dmg, debug_info = damageCalculation(target, attacker, True, counter_defense_type, return_debug_info=True, action_log=action_log)
             
-            log_action(action_log, f"{target.name} 反擊 {attacker.name} 造成 {dmg} 傷害")
-            log_debug(action_log, f"基礎傷害: {debug_info['baseDamage']}, 武器: {debug_info['weapon_power']}, ATK: {debug_info['attackerUnitAtk']}, DEF: {debug_info['defenderUnitDef']}, charAtk: {debug_info['attackerCharacterAtk']}, charDef: {debug_info['defenderCharacterDef']}, totalDamageMultiplierPercent: {debug_info['totalDamageMultiplierPercent']}, 剩餘 {attacker.current_hp}/{attacker.hp}")
-            if effects_applied:
-                log_debug(action_log, "狀態效果已套用")
-            
-            if attacker.current_hp <= 0:
-                log_action(action_log, f"{attacker.name} 被主反擊擊毀")
-                dead_units.append(attacker)
-        else:
-            # Don't apply status effects if attacker is already dead
-            log_debug(action_log, f"{target.name} 反擊已死亡的 {attacker.name} 造成 {dmg} 傷害 (基礎傷害: {debug_info['baseDamage']}, 武器: {debug_info['weapon_power']})")
+            if not attacker_killed_by_counter_support:
+                # Attacker is still alive, apply damage normally
+                attacker.take_damage(dmg)
+                add_counter_damage_to_summary(target.name, dmg, attacker.name)
+                # Apply status effects only if HP was successfully reduced
+                effects_applied = apply_status_effects_if_damage_dealt(target, attacker, True, dmg, attacker_hp_before)
+                
+                log_action(action_log, f"{target.name} 反擊 {attacker.name} 造成 {dmg} 傷害")
+                log_debug(action_log, f"基礎傷害: {debug_info['baseDamage']}, 武器: {debug_info['weapon_power']}, ATK: {debug_info['attackerUnitAtk']}, DEF: {debug_info['defenderUnitDef']}, charAtk: {debug_info['attackerCharacterAtk']}, charDef: {debug_info['defenderCharacterDef']}, totalDamageMultiplierPercent: {debug_info['totalDamageMultiplierPercent']}, 剩餘 {attacker.current_hp}/{attacker.hp}")
+                if effects_applied:
+                    log_debug(action_log, "狀態效果已套用")
+                
+                if attacker.current_hp <= 0:
+                    log_action(action_log, f"{attacker.name} 被主反擊擊毀")
+                    dead_units.append(attacker)
+            else:
+                # Attacker is already dead, but still count the damage and apply overkill
+                attacker.take_damage(dmg)  # This will add to overkill damage
+                add_counter_damage_to_summary(target.name, dmg, attacker.name)
+                # Don't apply status effects to dead units
+                log_action(action_log, f"{target.name} 反擊已死亡的 {attacker.name} 造成 {dmg} 傷害 (過度傷害)")
+                log_debug(action_log, f"基礎傷害: {debug_info['baseDamage']}, 武器: {debug_info['weapon_power']}, ATK: {debug_info['attackerUnitAtk']}, DEF: {debug_info['defenderUnitDef']}, charAtk: {debug_info['attackerCharacterAtk']}, charDef: {debug_info['defenderCharacterDef']}, totalDamageMultiplierPercent: {debug_info['totalDamageMultiplierPercent']}, 過度傷害: {attacker.overkill_damage}")
+        # If target cannot counter, skip all counter attacks
     else:
         # No counter attack if target is dead
         valid_counter = []
@@ -2056,7 +2075,7 @@ def Action(attacker, allies, enemies):
 
     # Update vigor for all participating units after combat (only if combat actually occurred)
     if can_attack:
-        update_vigor_after_combat(attacker, real_target, target, valid_support, valid_counter, action_log, allies, enemies)
+        update_vigor_after_combat(attacker, real_target, target, valid_support, valid_counter, action_log, allies, enemies, defense_type)
 
     # Check if any enemy was killed (original target or support defender) to trigger extra action
     any_enemy_killed = initial_target_dead or (real_target.current_hp <= 0)
@@ -2180,7 +2199,7 @@ def optimize_counter_attacks(target, enemies, attacker, counter_defense_type, ac
     
     return selected_counter_supporters
 
-def update_vigor_after_combat(attacker, real_target, target, valid_support, valid_counter, action_log, allies, enemies):
+def update_vigor_after_combat(attacker, real_target, target, valid_support, valid_counter, action_log, allies, enemies, defense_type):
     """
     Update vigor for all participating units based on combat results.
     Vigor is in range of 0 to 12.
@@ -2191,7 +2210,8 @@ def update_vigor_after_combat(attacker, real_target, target, valid_support, vali
     # Track combat results
     target_killed = real_target.current_hp <= 0
     attacker_killed = attacker.current_hp <= 0
-    counter_attack_occurred = not target_killed  # Counter only happens if target survives
+    # Counter only happens if target survives AND can reach attacker AND not defending
+    counter_attack_occurred = not target_killed and distance(target, attacker) <= target.longest_weapon_range and defense_type != "防禦"
     
     # Calculate vigor changes for each unit
     vigor_changes = {}
