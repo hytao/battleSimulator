@@ -5,6 +5,46 @@ import tkinter as tk
 from tkinter import messagebox, scrolledtext, simpledialog
 import re
 import urllib.parse
+import os
+import json
+
+# Constants for URL buffering
+URL_CACHE_FILE = "url_cache.json"
+
+def load_cached_url():
+    """Load the last used Google Sheets URL from cache file"""
+    try:
+        if os.path.exists(URL_CACHE_FILE):
+            with open(URL_CACHE_FILE, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                return data.get('last_url', ''), data.get('last_saved', '')
+    except Exception as e:
+        print(f"無法載入快取URL: {e}")
+    return '', ''
+
+def save_cached_url(url):
+    """Save the Google Sheets URL to cache file"""
+    try:
+        import datetime
+        data = {
+            'last_url': url,
+            'last_saved': datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        }
+        with open(URL_CACHE_FILE, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        print(f"無法儲存快取URL: {e}")
+
+def clear_cached_url():
+    """Clear the cached URL"""
+    try:
+        if os.path.exists(URL_CACHE_FILE):
+            os.remove(URL_CACHE_FILE)
+            return True
+    except Exception as e:
+        print(f"無法清除快取URL: {e}")
+    return False
+
 # === 公用函數 ===
 def parse_google_sheets_url(url):
     """
@@ -40,23 +80,35 @@ def get_google_sheets_url():
     Display a GUI dialog to get Google Sheets URL from user
     Returns (sheet_id, gid) or (None, None) if cancelled
     """
+    # Load cached URL
+    cached_url, last_saved = load_cached_url()
+    
     # Create a larger custom dialog window instead of using simple dialogs
     root = tk.Tk()
     root.title("Google試算表連結輸入")
     
     # Make the window larger and properly sized
     window_width = 900
-    window_height = 700
+    window_height = 750  # Increased height
     screen_width = root.winfo_screenwidth()
     screen_height = root.winfo_screenheight()
+    
+    # Ensure window doesn't exceed screen size
+    max_height = int(screen_height * 0.9)  # Use 90% of screen height
+    window_height = min(window_height, max_height)
+    
     x = (screen_width - window_width) // 2
     y = (screen_height - window_height) // 2
     root.geometry(f"{window_width}x{window_height}+{x}+{y}")
     root.resizable(True, True)
+    root.minsize(700, 500)  # Set minimum size
     
     # Create a scrollable frame
-    canvas = tk.Canvas(root)
-    scrollbar = tk.Scrollbar(root, orient="vertical", command=canvas.yview)
+    main_container = tk.Frame(root)
+    main_container.pack(fill='both', expand=True, padx=10, pady=10)
+    
+    canvas = tk.Canvas(main_container)
+    scrollbar = tk.Scrollbar(main_container, orient="vertical", command=canvas.yview)
     scrollable_frame = tk.Frame(canvas)
     
     scrollable_frame.bind(
@@ -135,8 +187,19 @@ def get_google_sheets_url():
     url_text.pack(side="left", fill="both", expand=True)
     url_scrollbar.pack(side="right", fill="y")
     
-    # Insert default text
-    url_text.insert("1.0", "https://docs.google.com/spreadsheets/d/")
+    # Insert cached URL or default text
+    if cached_url:
+        url_text.insert("1.0", cached_url)
+        # Show message about cached URL
+        cache_info_text = f"✅ 已載入上次使用的網址"
+        if last_saved:
+            cache_info_text += f" (儲存時間: {last_saved})"
+        cache_info_label = tk.Label(main_frame, text=cache_info_text, 
+                                   font=("Arial", 10), fg="darkgreen", bg="lightgreen")
+        cache_info_label.pack(pady=(0, 10))
+    else:
+        url_text.insert("1.0", "https://docs.google.com/spreadsheets/d/")
+    
     url_text.focus_set()  # Focus on the text widget
     
     # Result variable to store the return value
@@ -153,6 +216,8 @@ def get_google_sheets_url():
         
         try:
             sheet_id, gid = parse_google_sheets_url(url)
+            # Save the URL to cache if parsing was successful
+            save_cached_url(url)
             result[0] = sheet_id
             result[1] = gid
             root.quit()
@@ -169,25 +234,59 @@ def get_google_sheets_url():
         result[1] = None
         root.quit()
     
-    # Button frame
-    button_frame = tk.Frame(main_frame)
-    button_frame.pack(fill='x', pady=(20, 0))
+    def on_clear_cache():
+        if clear_cached_url():
+            # Clear the text widget and insert default text
+            url_text.delete("1.0", tk.END)
+            url_text.insert("1.0", "https://docs.google.com/spreadsheets/d/")
+            # Update cache info label if it exists
+            for widget in main_frame.winfo_children():
+                if isinstance(widget, tk.Label) and "已載入上次使用的網址" in widget.cget("text"):
+                    widget.destroy()
+                    break
+            # Hide the clear cache button after clearing
+            if cached_url and 'button_row2' in locals():
+                button_row2.destroy()
+            messagebox.showinfo("快取清除", "已清除快取的網址")
+        else:
+            messagebox.showerror("錯誤", "無法清除快取")
+    
+    # Button frame - fixed at bottom with proper spacing
+    button_container = tk.Frame(main_container, bg="lightgray")
+    button_container.pack(fill='x', side='bottom', pady=(10, 0))
+    
+    button_frame = tk.Frame(button_container, bg="lightgray")
+    button_frame.pack(pady=15)
+    
+    # First row of buttons
+    button_row1 = tk.Frame(button_frame, bg="lightgray")
+    button_row1.pack(pady=(0, 10))
     
     # Buttons with larger size and better spacing
-    ok_button = tk.Button(button_frame, text="確定", font=("Arial", 14, "bold"),
+    ok_button = tk.Button(button_row1, text="確定", font=("Arial", 14, "bold"),
                          command=on_ok, bg="lightgreen", fg="darkgreen",
                          width=12, height=2, relief="raised", borderwidth=3)
     ok_button.pack(side=tk.LEFT, padx=(0, 15))
     
-    cancel_button = tk.Button(button_frame, text="取消", font=("Arial", 14, "bold"),
+    cancel_button = tk.Button(button_row1, text="取消", font=("Arial", 14, "bold"),
                              command=on_cancel, bg="lightcoral", fg="darkred",
                              width=12, height=2, relief="raised", borderwidth=3)
     cancel_button.pack(side=tk.LEFT, padx=(0, 15))
     
-    test_button = tk.Button(button_frame, text="使用測試模式", font=("Arial", 14, "bold"),
+    test_button = tk.Button(button_row1, text="使用測試模式", font=("Arial", 14, "bold"),
                            command=on_test_mode, bg="lightyellow", fg="darkorange",
                            width=15, height=2, relief="raised", borderwidth=3)
     test_button.pack(side=tk.LEFT)
+    
+    # Second row - Clear cache button (only show if cache exists)
+    if cached_url:
+        button_row2 = tk.Frame(button_frame, bg="lightgray")
+        button_row2.pack()
+        
+        clear_cache_button = tk.Button(button_row2, text="清除快取網址", font=("Arial", 12),
+                                      command=on_clear_cache, bg="lightgray", fg="black",
+                                      width=20, height=1, relief="raised", borderwidth=2)
+        clear_cache_button.pack()
     
     # Bind Enter key to OK button (when buttons have focus)
     def on_enter(event):
@@ -315,7 +414,7 @@ def apply_weapon_effects(attacker, defender, use_max_weapon, defense_type):
     Returns: (damage_multiplier_bonus, defense_reduction, attack_reduction, resistance_reduction)
     """
     damage_multiplier_bonus = 0.0
-    defense_reduction = 0.0
+    defense_reduction = 0.0  # This will be 0 since 減防 is now a permanent status effect
     attack_reduction = 0.0
     resistance_reduction = 0.0
     
@@ -333,10 +432,11 @@ def apply_weapon_effects(attacker, defender, use_max_weapon, defense_type):
         # Current weapon's 易傷 effect is NOT applied to its own damage calculation
         # It will be applied as a status effect after the attack
         
-        if effect['type'] == '減防':
-            defense_reduction = effect['percentage']
+        # 減防 is now handled as a permanent status effect, not immediate
+        # if effect['type'] == '減防':
+        #     defense_reduction = effect['percentage']
         
-        elif effect['type'] == '減攻':
+        if effect['type'] == '減攻':
             # This will be applied as a status effect to the defender after this attack
             attack_reduction = effect['percentage']
     
@@ -382,6 +482,20 @@ def apply_status_effects_to_target(attacker, defender, use_max_weapon):
             )
             # Cap at 100% to prevent negative attack
             defender.pilot.attack_reduction_percent = min(100.0, defender.pilot.attack_reduction_percent)
+        
+        elif effect['type'] == '減防':
+            # Apply defense reduction status effect to the defender
+            # Initialize defense_reduction_percent if it doesn't exist
+            if not hasattr(defender.pilot, 'defense_reduction_percent'):
+                defender.pilot.defense_reduction_percent = 0.0
+            
+            # Same type effects don't stack - take the maximum value
+            defender.pilot.defense_reduction_percent = max(
+                defender.pilot.defense_reduction_percent,
+                effect['percentage']
+            )
+            # Cap at 100% to prevent negative defense
+            defender.pilot.defense_reduction_percent = min(100.0, defender.pilot.defense_reduction_percent)
         
         elif effect['type'] == '易傷':
             # Apply vulnerability effect to the defender
@@ -620,53 +734,61 @@ def move(attacker, target, can_attack, action_log, all_units):
                         action_log.append(f"[DEBUG] 有效位置 ({r}, {c}): 移動距離={movement_required}, 攻擊距離={manhattan_dist_to_target}")
     
     if valid_positions:
-        # Sort by: 1) minimum movement required, 2) minimum attack distance (closer to target)
-        # BUT: if current position allows attack, prefer positions that are closer to target
+        # Check if current position allows attack
         current_pos_distance = abs(attacker.row - target.row) + abs(attacker.col - target.col)
         current_can_attack = current_pos_distance <= weapon_range
         
         if current_can_attack:
-            action_log.append(f"[DEBUG] 當前位置可以攻擊，尋找更接近目標的位置")
-            # Filter to positions that are closer to target than current position
-            better_positions = [pos for pos in valid_positions if pos['attack_distance'] < current_pos_distance]
-            if better_positions:
-                valid_positions = better_positions
-                action_log.append(f"[DEBUG] 找到 {len(better_positions)} 個更接近目標的位置")
-        
-        # Add direction preference as tiebreaker
-        # Direction preference: left > up > down > right
-        def calculate_direction_preference(pos):
-            r, c = pos['pos']
-            dr = r - attacker.row
-            dc = c - attacker.col
+            # If current position allows attack, don't move - stay in current position
+            action_log.append(f"[DEBUG] 當前位置可以攻擊，無需移動 (距離: {current_pos_distance}, 射程: {weapon_range})")
+            # Return current position as the "best" position with 0 movement required
+            best_attack_position = (attacker.row, attacker.col)
+            min_movement_required = 0
+            min_attack_distance = current_pos_distance
+            action_log.append(f"[DEBUG] 選中當前位置: {best_attack_position}, 移動距離: {min_movement_required}, 攻擊距離: {min_attack_distance}")
+        else:
+            # Current position doesn't allow attack, find optimal position to move to
+            action_log.append(f"[DEBUG] 當前位置無法攻擊 (距離: {current_pos_distance}, 射程: {weapon_range})，尋找最佳攻擊位置")
             
-            # Calculate which primary direction this move represents
-            if abs(dc) > abs(dr):  # Horizontal movement is primary
-                if dc < 0:  # Left
-                    return 0
-                else:  # Right
-                    return 3
-            else:  # Vertical movement is primary
-                if dr < 0:  # Up
-                    return 1
-                else:  # Down
-                    return 2
-        
-        # Sort by: 1) minimum movement, 2) minimum attack distance, 3) direction preference
-        valid_positions.sort(key=lambda x: (x['movement_required'], x['attack_distance'], calculate_direction_preference(x)))
-        best_position = valid_positions[0]
-        best_attack_position = best_position['pos']
-        min_movement_required = best_position['movement_required']
-        min_attack_distance = best_position['attack_distance']
-        
-        action_log.append(f"[DEBUG] 選中最佳位置: {best_attack_position}, 移動距離: {min_movement_required}, 攻擊距離: {min_attack_distance}")
-        action_log.append(f"[DEBUG] 方向偏好值: {calculate_direction_preference(best_position)}")
+            # Add direction preference as tiebreaker
+            # Direction preference: left > up > down > right
+            def calculate_direction_preference(pos):
+                r, c = pos['pos']
+                dr = r - attacker.row
+                dc = c - attacker.col
+                
+                # Calculate which primary direction this move represents
+                if abs(dc) > abs(dr):  # Horizontal movement is primary
+                    if dc < 0:  # Left
+                        return 0
+                    else:  # Right
+                        return 3
+                else:  # Vertical movement is primary
+                    if dr < 0:  # Up
+                        return 1
+                    else:  # Down
+                        return 2
+            
+            # Sort by: 1) minimum movement, 2) minimum attack distance, 3) direction preference
+            valid_positions.sort(key=lambda x: (x['movement_required'], x['attack_distance'], calculate_direction_preference(x)))
+            best_position = valid_positions[0]
+            best_attack_position = best_position['pos']
+            min_movement_required = best_position['movement_required']
+            min_attack_distance = best_position['attack_distance']
+            
+            action_log.append(f"[DEBUG] 選中最佳位置: {best_attack_position}, 移動距離: {min_movement_required}, 攻擊距離: {min_attack_distance}")
+            action_log.append(f"[DEBUG] 方向偏好值: {calculate_direction_preference(best_position)}")
     
     if best_attack_position:
-        # Move to the optimal attack position
         target_row, target_col = best_attack_position
-        action_log.append(f"{attacker.name} 移動到最佳攻擊位置 ({target_row}, {target_col}) - 移動距離: {min_movement_required}, 攻擊距離: {min_attack_distance}")
-        movement_path = try_move(attacker, target_row, target_col, attacker.move, all_units)
+        if min_movement_required == 0:
+            # No movement needed, already in optimal position
+            action_log.append(f"{attacker.name} 已在最佳攻擊位置 ({target_row}, {target_col}) - 無需移動, 攻擊距離: {min_attack_distance}")
+            movement_path = []  # Empty movement path
+        else:
+            # Move to the optimal attack position
+            action_log.append(f"{attacker.name} 移動到最佳攻擊位置 ({target_row}, {target_col}) - 移動距離: {min_movement_required}, 攻擊距離: {min_attack_distance}")
+            movement_path = try_move(attacker, target_row, target_col, attacker.move, all_units)
     else:
         # If no optimal position found, move as close as possible to target
         action_log.append(f"{attacker.name} 找不到最佳攻擊位置，盡可能接近目標")
@@ -674,7 +796,7 @@ def move(attacker, target, can_attack, action_log, all_units):
 
     return use_max_weapon, movement_path
 
-def damageCalculation(attacker, defender, use_max_weapon=True, defense_type="否", return_debug_info=False):
+def damageCalculation(attacker, defender, use_max_weapon=True, defense_type="否", return_debug_info=False, action_log=None):
     # Get weapon properties
     if use_max_weapon:
         weapon_stat = attacker.max_weapon_stat
@@ -718,9 +840,30 @@ def damageCalculation(attacker, defender, use_max_weapon=True, defense_type="否
     else:
         defenderUnitDef = defender.defense
     
-    # Apply defense reduction from weapon effects
-    if defense_reduction > 0:
-        defenderUnitDef = defenderUnitDef * (1 - defense_reduction / 100.0)
+    # Apply existing defense reduction status effects from previous attacks
+    if hasattr(defender.pilot, 'defense_reduction_percent') and defender.pilot.defense_reduction_percent > 0:
+        defenderUnitDef = defenderUnitDef * (1 - defender.pilot.defense_reduction_percent / 100.0)
+
+    # Log damage calculation details in debug mode
+    if action_log:
+        log_debug(action_log, f"=== 傷害計算詳細 ===")
+        log_debug(action_log, f"攻擊者: {attacker.name} | 防禦者: {defender.name}")
+        log_debug(action_log, f"武器: {weapon_type} | 威力: {weapon_power} | 武器屬性: {weapon_stat}")
+        log_debug(action_log, f"攻擊者機體攻擊: {attacker.atk} → {attackerUnitAtk:.1f} (減攻效果後)")
+        log_debug(action_log, f"攻擊者駕駛員{weapon_stat}: {attackerCharacterAtk}")
+        
+        # Show original defense and all reductions applied
+        original_def = defender.defense
+        existing_def_reduction = getattr(defender.pilot, 'defense_reduction_percent', 0.0)
+        log_debug(action_log, f"防禦者機體防禦: {original_def} → {defenderUnitDef:.1f}")
+        if existing_def_reduction > 0:
+            log_debug(action_log, f"  - 既有減防狀態: -{existing_def_reduction:.1f}%")
+        
+        log_debug(action_log, f"防禦者駕駛員防禦: {defenderCharacterDef}")
+        if defense_type == "支援防禦":
+            log_debug(action_log, f"支援防禦加成: +{defender.pilot.support_defense_mod * defender.base_def:.1f}")
+        log_debug(action_log, f"武器效果 - 易傷加成: +{damage_multiplier_bonus:.1f}% | 減攻: -{attack_reduction:.1f}%")
+        log_debug(action_log, f"抗性減免: -{resistance_reduction:.1f}%")
 
     characterStatRatio = max(0, attackerCharacterAtk - defenderCharacterDef) / 5000
     unitStatRatio = max(0, math.ceil(attackerUnitAtk / 10.0 - defenderUnitDef / 10.0)) / 5000
@@ -752,6 +895,12 @@ def damageCalculation(attacker, defender, use_max_weapon=True, defense_type="否
                                    attackerVigorDamageBonus - sumDefenderDamageTakenPercent + 
                                    damage_multiplier_bonus - resistance_reduction)
     
+    # Log damage multiplier details in debug mode
+    if action_log:
+        log_debug(action_log, f"基礎傷害: {baseDamage} | 戰鬥傷害: {battleDamage}")
+        log_debug(action_log, f"傷害修正 - 增傷: +{sumAttackerDamageDealtPercent:.1f}% | 氣勢加成: +{attackerVigorDamageBonus:.1f}% | 減傷: -{sumDefenderDamageTakenPercent:.1f}%")
+        log_debug(action_log, f"總傷害乘數: {totalDamageMultiplierPercent:.1f}%")
+    
     scaledDamage = math.ceil((totalDamageMultiplierPercent * battleDamage) / 100.0)
     if defense_type == "否":
         defensiveCorrection = 1
@@ -761,6 +910,12 @@ def damageCalculation(attacker, defender, use_max_weapon=True, defense_type="否
 
     criticalCorrectionPercent = 0
     finalDamage = max(0, math.ceil(combinedDamage * ((criticalCorrectionPercent + 100.0) / 100.0)))
+    
+    # Log final damage calculation in debug mode
+    if action_log:
+        log_debug(action_log, f"縮放傷害: {scaledDamage} | 防禦修正: {defensiveCorrection:.2f}")
+        log_debug(action_log, f"組合傷害: {combinedDamage:.1f} | 最終傷害: {finalDamage}")
+        log_debug(action_log, f"=== 傷害計算結束 ===")
     
     if return_debug_info:
         debug_info = {
@@ -1006,8 +1161,7 @@ def printMap(units, action_text="", active_unit=None, target_unit=None, stage_in
     team_b_units = set()
     
     for unit in units:
-        if unit.current_hp <= 0:
-            continue
+        # Include all units (alive and dead) for team determination
         # Use stored team information if available, otherwise fall back to position
         if hasattr(unit, 'team_name'):
             if unit.team_name == "Team A":
@@ -1026,42 +1180,82 @@ def printMap(units, action_text="", active_unit=None, target_unit=None, stage_in
     if movement_path:
         movement_cells = set(movement_path)
     
-    # Create dead units set for quick lookup
-    dead_cells = set()
+    # Create newly dead units set for special display (only show "被擊毀" for units that just died in this combat)
+    newly_dead_units = set()
     if dead_units:
         for dead_unit in dead_units:
-            dead_cells.add((dead_unit.row, dead_unit.col))
+            newly_dead_units.add(dead_unit.name)
     
     # Initialize grid with unit positions and colors
     unit_info = {}
     for unit in units:
-        if unit.current_hp <= 0:
-            continue
         r, c = unit.row, unit.col
         if 1 <= r <= rows and 1 <= c <= cols:
             name = unit.name.strip()
-            display = name[:5] if len(name) > 5 else name  # Allow more characters
             
-            # Determine color based on team, active status, target status, and death status
-            if dead_units and unit in dead_units:
-                bg_color, text_color, border_width = "gray", "white", 3
-            elif active_unit and unit.name == active_unit.name:
-                bg_color, text_color, border_width = "lightgreen", "darkgreen", 4
-            elif target_unit and unit.name == target_unit.name:
-                bg_color, text_color, border_width = "orange", "darkorange", 4
-            elif unit.name in team_a_units:
-                bg_color, text_color, border_width = "lightcoral", "darkred", 2
-            elif unit.name in team_b_units:
-                bg_color, text_color, border_width = "lightblue", "darkblue", 2
+            # Check if unit is dead and if it's newly dead (for special display)
+            is_dead = unit.current_hp <= 0
+            is_newly_dead = name in newly_dead_units
+            
+            # Only show "被擊毀" for newly dead units during combat phases
+            # For units that were already dead, don't display them at all during combat phases
+            if is_dead:
+                # Check if this is a combat phase (攻擊完成 or 戰鬥結束)
+                is_combat_phase = (stage_info and ("攻擊完成" in stage_info or "戰鬥結束" in stage_info))
+                
+                if is_newly_dead and is_combat_phase:
+                    # Show newly dead units with special formatting during combat phases
+                    display = "被擊毀"
+                    # Show overkill damage instead of current HP (which would be 0)
+                    hp_display = f"-{unit.overkill_damage}" if unit.overkill_damage > 0 else "0"
+                    # Dead units get gray background with white text
+                    bg_color, text_color, border_width = "gray", "white", 3
+                    support_info_lines = []  # No support info for dead units
+                elif not is_combat_phase:
+                    # Outside combat phases, show all dead units normally (shouldn't happen since they get removed)
+                    display = "被擊毀"
+                    # Show overkill damage instead of current HP (which would be 0)
+                    hp_display = f"-{unit.overkill_damage}" if unit.overkill_damage > 0 else "0"
+                    bg_color, text_color, border_width = "gray", "white", 3
+                    support_info_lines = []  # No support info for dead units
+                else:
+                    # Dead unit that's not newly dead - skip it during combat phases to avoid confusion
+                    continue
             else:
-                bg_color, text_color, border_width = "white", "black", 1
+                # Alive units - normal display
+                display = name[:5] if len(name) > 5 else name  # Allow more characters
+                hp_display = f"{unit.current_hp}"
+                
+                # Determine color based on team, active status, target status
+                if active_unit and unit.name == active_unit.name:
+                    bg_color, text_color, border_width = "lightgreen", "darkgreen", 4
+                elif target_unit and unit.name == target_unit.name:
+                    bg_color, text_color, border_width = "orange", "black", 4
+                elif unit.name in team_a_units:
+                    bg_color, text_color, border_width = "lightcoral", "darkred", 2
+                elif unit.name in team_b_units:
+                    bg_color, text_color, border_width = "lightblue", "darkblue", 2
+                else:
+                    bg_color, text_color, border_width = "white", "black", 1
+                
+                # Generate support info strings for alive units
+                support_info_lines = []
+                
+                # Support attack info (show only if original > 0)
+                if unit.pilot.original_support_attack > 0:
+                    support_info_lines.append(f"攻{unit.pilot.support_attack}/{unit.pilot.original_support_attack}")
+                
+                # Support defense info (show only if original > 0) 
+                if unit.pilot.original_support_defense > 0:
+                    support_info_lines.append(f"防{unit.pilot.support_defense}/{unit.pilot.original_support_defense}")
             
             unit_info[(r, c)] = {
                 'text': display,
                 'bg_color': bg_color,
                 'text_color': text_color,
                 'border_width': border_width,
-                'hp_info': f"{unit.current_hp}" if unit.current_hp > 0 else "0"
+                'hp_info': hp_display,
+                'support_info': support_info_lines
             }
     
     # Create map grid with larger cells
@@ -1078,9 +1272,9 @@ def printMap(units, action_text="", active_unit=None, target_unit=None, stage_in
                 text_color = info['text_color']
                 border_width = info['border_width']
                 
-                # Create frame for unit cell to show HP - made larger
+                # Create frame for unit cell to show HP and support info - made larger
                 cell_frame = tk.Frame(map_frame, relief="solid", borderwidth=border_width,
-                                    bg=bg_color, width=80, height=50)
+                                    bg=bg_color, width=80, height=70)  # Increased height for support info
                 cell_frame.grid(row=r, column=c, padx=2, pady=2, sticky="nsew")
                 cell_frame.pack_propagate(False)
                 
@@ -1093,6 +1287,13 @@ def printMap(units, action_text="", active_unit=None, target_unit=None, stage_in
                 hp_label = tk.Label(cell_frame, text=info['hp_info'], font=("Courier", 9), 
                                   bg=bg_color, fg=text_color)
                 hp_label.pack()
+                
+                # Support info labels (if any)
+                if 'support_info' in info and info['support_info']:
+                    for support_line in info['support_info']:
+                        support_label = tk.Label(cell_frame, text=support_line, font=("Courier", 7), 
+                                               bg=bg_color, fg=text_color)
+                        support_label.pack()
                 
             elif (r, c) in movement_cells:
                 # Movement path cell - highlighted in light yellow
@@ -1269,6 +1470,7 @@ class Pilot:
         self.original_support_defense = safe_int(row.get('支援防禦'))
         # Status effects from weapon attacks
         self.attack_reduction_percent = 0.0  # Reduces attack when this unit attacks
+        self.defense_reduction_percent = 0.0  # Reduces defense when this unit defends
         self.vulnerability_effects = {}  # Dict: weapon_type -> percentage for 易傷 effects
 
 class Unit:
@@ -1303,6 +1505,7 @@ class Unit:
         # 新增屬性 (稍後由 Team 指派)
         self.row = None
         self.col = None
+        self.overkill_damage = 0  # Track overkill damage when unit dies
 
     def heal(self, amount):
         """Heal the unit, but don't exceed max HP"""
@@ -1310,7 +1513,17 @@ class Unit:
         return self.current_hp
 
     def take_damage(self, damage):
-        """Apply damage to current HP"""
+        """Apply damage to current HP and track overkill"""
+        if self.current_hp > 0:
+            # Calculate overkill if damage would kill the unit
+            if damage >= self.current_hp:
+                self.overkill_damage = damage - self.current_hp
+            else:
+                self.overkill_damage = 0
+        else:
+            # Unit is already dead, all damage is overkill
+            self.overkill_damage += damage
+        
         self.current_hp = max(0, self.current_hp - damage)
         return self.current_hp
 
@@ -1331,26 +1544,67 @@ class Team:
         self.name = name
         self.units = [Unit(row) for row in unit_rows]
 
+        # Define position mappings for each team
+        # Position 1-5 correspond to specific grid coordinates
         if self.name == "Team A":
-            start_positions = [(4, 3), (6, 2), (2, 2), (5, 1), (3, 1)]
+            position_map = {
+                1: (4, 3),
+                2: (6, 2), 
+                3: (2, 2),
+                4: (5, 1),
+                5: (3, 1)
+            }
             # Add "(红)" to all Team A unit names
             for unit in self.units:
                 if not unit.name.endswith("(红)"):
                     unit.name += "(红)"
         elif self.name == "Team B":
-            start_positions = [(4, 9), (6, 10), (2, 10), (5, 11), (3, 11)]
+            position_map = {
+                1: (4, 9),
+                2: (6, 10),
+                3: (2, 10), 
+                4: (5, 11),
+                5: (3, 11)
+            }
             # Add "(蓝)" to all Team B unit names
             for unit in self.units:
                 if not unit.name.endswith("(蓝)"):
                     unit.name += "(蓝)"
         else:
-            start_positions = [(0, 0)] * len(self.units)
+            position_map = {}
 
-        for unit, (r, c) in zip(self.units, start_positions):
-            unit.row = r
-            unit.col = c
+        # Track used positions to ensure uniqueness
+        used_positions = set()
+        valid_units = []  # Only store units with valid positions
+        
+        # Assign positions based on unit.position
+        for unit in self.units:
             unit.team_name = self.name  # Store team information in unit
-            unit.initial_pos = (r, c)  # Store initial position
+            
+            # Use unit.position to determine grid position
+            if unit.position in position_map:
+                if unit.position not in used_positions:
+                    r, c = position_map[unit.position]
+                    unit.row = r
+                    unit.col = c
+                    used_positions.add(unit.position)
+                    unit.initial_pos = (r, c)  # Store initial position
+                    valid_units.append(unit)
+                else:
+                    # Position already used, show error and ignore unit
+                    print(f"❌ 錯誤: {self.name} 的單位 '{unit.name}' 位置 {unit.position} 重複，該單位將被忽略")
+            else:
+                # Invalid position number, show error and ignore unit
+                print(f"❌ 錯誤: {self.name} 的單位 '{unit.name}' 位置 {unit.position} 無效 (必須為1-5)，該單位將被忽略")
+        
+        # Replace units list with only valid units
+        self.units = valid_units
+        
+        # Show summary of valid units
+        if valid_units:
+            print(f"✅ {self.name} 成功載入 {len(valid_units)} 個單位: {[unit.name for unit in valid_units]}")
+        else:
+            print(f"⚠️  警告: {self.name} 沒有任何有效單位！")
 
 class Battleground:
     def __init__(self, team_a_rows, team_b_rows):
@@ -1371,6 +1625,9 @@ def reset_status_effects(all_units):
         if unit.current_hp > 0:
             # Reset attack reduction from 減攻 effects
             unit.pilot.attack_reduction_percent = 0.0
+            # Reset defense reduction from 減防 effects
+            if hasattr(unit.pilot, 'defense_reduction_percent'):
+                unit.pilot.defense_reduction_percent = 0.0
             # Reset vulnerability effects from 易傷 effects
             if hasattr(unit.pilot, 'vulnerability_effects'):
                 unit.pilot.vulnerability_effects = {}
@@ -1576,7 +1833,7 @@ def Action(attacker, allies, enemies):
         # Calculate damage that would be taken by each potential defender
         defenders_with_damage = []
         for unit in potential_defenders:
-            dmg = damageCalculation(attacker, unit, use_max_weapon, "支援防禦")
+            dmg = damageCalculation(attacker, unit, use_max_weapon, "支援防禦", action_log=action_log)
             can_survive = dmg < unit.current_hp
             defenders_with_damage.append((unit, dmg, can_survive))
             log_debug(action_log, f"{unit.name} 支援防禦傷害預估: {dmg}, 可存活: {can_survive}, 當前HP: {unit.current_hp}")
@@ -1606,7 +1863,7 @@ def Action(attacker, allies, enemies):
         real_target = target
         # === 自我防禦判斷 ===
         can_counter = distance(target, attacker) <= target.longest_weapon_range
-        dmg_if_defend = damageCalculation(attacker, target, use_max_weapon, "防禦")
+        dmg_if_defend = damageCalculation(attacker, target, use_max_weapon, "防禦", action_log=action_log)
         if dmg_if_defend < target.current_hp and not can_counter:
             defense_type = "防禦"
             stage_info = f"{attacker.name} 攻擊 {target.name} (防禦中)"
@@ -1630,7 +1887,7 @@ def Action(attacker, allies, enemies):
     target_killed_by_support = False
     for unit in valid_support:
         target_hp_before = real_target.current_hp
-        dmg, debug_info = damageCalculation(unit, real_target, True, defense_type, return_debug_info=True)
+        dmg, debug_info = damageCalculation(unit, real_target, True, defense_type, return_debug_info=True, action_log=action_log)
         real_target.take_damage(dmg)
         add_damage_to_summary(unit.name, dmg, real_target.name)
         # Apply status effects only if HP was successfully reduced
@@ -1651,7 +1908,7 @@ def Action(attacker, allies, enemies):
 
     # Main attacker always attacks, even if target is already dead
     target_hp_before = real_target.current_hp
-    dmg, debug_info = damageCalculation(attacker, real_target, use_max_weapon, defense_type, return_debug_info=True)
+    dmg, debug_info = damageCalculation(attacker, real_target, use_max_weapon, defense_type, return_debug_info=True, action_log=action_log)
     if not target_killed_by_support:
         real_target.take_damage(dmg)
         add_damage_to_summary(attacker.name, dmg, real_target.name)
@@ -1705,7 +1962,7 @@ def Action(attacker, allies, enemies):
         attacker_killed_by_counter_support = False
         for unit in valid_counter:
             attacker_hp_before = attacker.current_hp
-            dmg, debug_info = damageCalculation(unit, attacker, True, counter_defense_type, return_debug_info=True)
+            dmg, debug_info = damageCalculation(unit, attacker, True, counter_defense_type, return_debug_info=True, action_log=action_log)
             attacker.take_damage(dmg)
             add_counter_damage_to_summary(unit.name, dmg, attacker.name)
             # Apply status effects only if HP was successfully reduced
@@ -1726,7 +1983,7 @@ def Action(attacker, allies, enemies):
 
         # Main counter attack always happens, even if attacker is already dead
         attacker_hp_before = attacker.current_hp
-        dmg, debug_info = damageCalculation(target, attacker, True, counter_defense_type, return_debug_info=True)
+        dmg, debug_info = damageCalculation(target, attacker, True, counter_defense_type, return_debug_info=True, action_log=action_log)
         if not attacker_killed_by_counter_support:
             attacker.take_damage(dmg)
             add_counter_damage_to_summary(target.name, dmg, attacker.name)
@@ -1769,7 +2026,25 @@ def Action(attacker, allies, enemies):
     # Clean up dead units from the map for next action
     dead_unit_names = [unit.name for unit in dead_units]
     for unit in dead_units:
-        all_units.remove(unit)
+        # Remove from all_units list
+        if unit in all_units:
+            all_units.remove(unit)
+        
+        # Also remove from original team lists to prevent them from reappearing
+        # Check team_a
+        if hasattr(unit, 'team_name') and unit.team_name == "Team A":
+            # Find the battleground reference - we need to access it from the global scope
+            # For now, we'll mark the unit as removed by setting a flag
+            unit._removed_from_battle = True
+        elif hasattr(unit, 'team_name') and unit.team_name == "Team B":
+            unit._removed_from_battle = True
+        else:
+            # Fallback: determine by position
+            if unit.col <= 5:  # Team A
+                unit._removed_from_battle = True
+            else:  # Team B
+                unit._removed_from_battle = True
+    
     if dead_unit_names:
         log_action(action_log, f"清除被擊毀的單位: {', '.join(dead_unit_names)}")
     
@@ -1803,7 +2078,7 @@ def find_optimal_support_combination(main_attacker, potential_supporters, target
     from itertools import combinations
     
     # Calculate main attacker damage
-    main_damage = damageCalculation(main_attacker, target, True, defense_type)
+    main_damage = damageCalculation(main_attacker, target, True, defense_type, action_log=action_log)
     target_hp = target.current_hp
     
     action_log.append(f"[DEBUG] 尋找最小傷害組合: 目標HP={target_hp}, 主攻者傷害={main_damage}")
@@ -1816,7 +2091,7 @@ def find_optimal_support_combination(main_attacker, potential_supporters, target
     # Calculate damage for all potential supporters
     supporter_damages = []
     for unit in potential_supporters:
-        dmg = damageCalculation(unit, target, True, defense_type)
+        dmg = damageCalculation(unit, target, True, defense_type, action_log=action_log)
         supporter_damages.append((unit, dmg))
         action_log.append(f"[DEBUG] {unit.name} 支援攻擊傷害: {dmg}")
     
@@ -2036,6 +2311,17 @@ def main():
         print(f"\nTeam A: {[unit.name for unit in battleground.team_a.units]}")
         print(f"Team B: {[unit.name for unit in battleground.team_b.units]}")
         
+        # Validate that both teams have at least one valid unit
+        if len(battleground.team_a.units) == 0:
+            print("❌ 錯誤: Team A 沒有任何有效單位，無法開始戰鬥！")
+            print("請檢查Google試算表中Team A單位的位置設定（必須為1-5且不能重複）")
+            return
+        
+        if len(battleground.team_b.units) == 0:
+            print("❌ 錯誤: Team B 沒有任何有效單位，無法開始戰鬥！")
+            print("請檢查Google試算表中Team B單位的位置設定（必須為1-5且不能重複）")
+            return
+        
         # Start the battle simulation
         print("\n=== 戰鬥開始 ===")
         run_battle_simulation(battleground)
@@ -2080,13 +2366,16 @@ def run_battle_simulation(battleground):
         reset_support_counters(all_units)
         reset_status_effects(all_units)
         
-        # Get all living units and sort by action order
-        living_units = [unit for unit in all_units if unit.current_hp > 0]
+        # Get all living units and sort by action order - exclude removed units
+        living_units = [unit for unit in all_units 
+                       if unit.current_hp > 0 and not getattr(unit, '_removed_from_battle', False)]
         living_units.sort(key=lambda u: u.action_order)
         
-        # Check win conditions
-        team_a_alive = [unit for unit in battleground.team_a.units if unit.current_hp > 0]
-        team_b_alive = [unit for unit in battleground.team_b.units if unit.current_hp > 0]
+        # Check win conditions - exclude units that have been removed from battle
+        team_a_alive = [unit for unit in battleground.team_a.units 
+                       if unit.current_hp > 0 and not getattr(unit, '_removed_from_battle', False)]
+        team_b_alive = [unit for unit in battleground.team_b.units 
+                       if unit.current_hp > 0 and not getattr(unit, '_removed_from_battle', False)]
         
         if not team_a_alive:
             print(f"\n🎉 Team B 獲勝！")
@@ -2100,13 +2389,17 @@ def run_battle_simulation(battleground):
             if unit.current_hp <= 0:
                 continue
                 
-            # Determine allies and enemies
+            # Determine allies and enemies - exclude removed units
             if unit in battleground.team_a.units:
-                allies = [u for u in battleground.team_a.units if u.current_hp > 0]
-                enemies = [u for u in battleground.team_b.units if u.current_hp > 0]
+                allies = [u for u in battleground.team_a.units 
+                         if u.current_hp > 0 and not getattr(u, '_removed_from_battle', False)]
+                enemies = [u for u in battleground.team_b.units 
+                          if u.current_hp > 0 and not getattr(u, '_removed_from_battle', False)]
             else:
-                allies = [u for u in battleground.team_b.units if u.current_hp > 0]
-                enemies = [u for u in battleground.team_a.units if u.current_hp > 0]
+                allies = [u for u in battleground.team_b.units 
+                         if u.current_hp > 0 and not getattr(u, '_removed_from_battle', False)]
+                enemies = [u for u in battleground.team_a.units 
+                          if u.current_hp > 0 and not getattr(u, '_removed_from_battle', False)]
             
             # Execute the unit's action
             battle_ended = Action(unit, allies, enemies)
@@ -2115,9 +2408,11 @@ def run_battle_simulation(battleground):
                 print("\n戰鬥被使用者終止")
                 return
             
-            # Check win conditions again after each action
-            team_a_alive = [unit for unit in battleground.team_a.units if unit.current_hp > 0]
-            team_b_alive = [unit for unit in battleground.team_b.units if unit.current_hp > 0]
+            # Check win conditions again after each action - exclude removed units
+            team_a_alive = [unit for unit in battleground.team_a.units 
+                           if unit.current_hp > 0 and not getattr(unit, '_removed_from_battle', False)]
+            team_b_alive = [unit for unit in battleground.team_b.units 
+                           if unit.current_hp > 0 and not getattr(unit, '_removed_from_battle', False)]
             
             if not team_a_alive or not team_b_alive:
                 break

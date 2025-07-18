@@ -1,23 +1,32 @@
-# Battle Simulator Setup and Installation Guide
+# Battle Simulator - Advanced Tactical RPG Combat System
 
-## Features
-- **Google Sheets Integration**: Load battle data directly from your Google Sheets
-- **Large URL Input GUI**: User-friendly interface for entering Google Sheets URLs
-- **Auto-Play Mode**: Automatic battle progression with 2-second intervals
-- **Interactive GUI**: User-friendly interface for battle simulation
-- **Automatic URL Parsing**: Supports various Google Sheets URL formats
-- **Debug Mode**: Toggle detailed logging for troubleshooting
-- **Real-time Battle Visualization**: Visual map with unit positions and status
+## 🎮 Features
+- **📊 Google Sheets Integration**: Load battle data directly from your Google Sheets
+- **🖥️ Large URL Input GUI**: User-friendly interface for entering Google Sheets URLs with URL caching
+- **⚡ Auto-Play Mode**: Automatic battle progression with 2-second intervals
+- **🎯 Interactive GUI**: Beautiful battle visualization with real-time map updates
+- **🔗 Automatic URL Parsing**: Supports various Google Sheets URL formats
+- **🐛 Debug Mode**: Toggle detailed logging for damage calculation and combat mechanics
+- **📍 Real-time Battle Visualization**: Visual map with unit positions, status effects, and movement paths
+- **💀 Advanced Combat System**: Support for overkill damage, status effects, and dead unit tracking
+- **🛡️ Status Effects**: Support for attack reduction (減攻), defense reduction (減防), and vulnerability (易傷)
+- **🎯 Smart Targeting**: Intelligent movement and targeting system
+- **🔄 Movement System**: Pathfinding and range calculation with visual feedback
 
-## Easy Installation Options
+## 🚀 Easy Installation Options
 
-### Option 1: Double-Click Launcher (Recommended for Windows)
-1. Make sure Python is installed on your system
-2. Double-click `run_simulator.bat` to start the simulator
-3. The launcher will automatically check dependencies and run the simulator
+### Option 1: One-Click Launcher (Recommended)
+1. **Windows**: Double-click `run_simulator.bat`
+2. **Linux/Mac**: Run `./run_simulator.sh` or `bash run_simulator.sh`
+3. The smart launcher will automatically:
+   - Check Python installation
+   - Install missing dependencies
+   - Launch the simulator
 
 ### Option 2: Create Standalone Executable (Best for Distribution)
 1. Run the build script: `python build_exe.py`
+2. This creates `dist/BattleSimulator.exe` - a standalone executable
+3. Share the .exe file - no Python installation needed on target machines!
 2. This creates `dist/BattleSimulator.exe` - a standalone executable
 3. Share the .exe file - no Python installation needed on target machines!
 
@@ -49,22 +58,27 @@ python simulator.py
 https://docs.google.com/spreadsheets/d/1rf1uZHKJhhCQ_10qvzQkoSaD56ExFxE8SOWAxjXlwyo/edit?gid=489835885#gid=489835885
 ```
 
-### Running the Simulation
-1. Start the simulator using any of the installation options above
-2. **New Large URL Input GUI**: A user-friendly dialog will appear with:
-   - Clear instructions and examples
-   - Large input field for your Google Sheets URL
-   - Setup guide for making your sheet accessible
-   - Options to proceed, cancel, or use test mode
+### Running the Battle Simulation
+1. Start the simulator using any installation option above
+2. **Enhanced URL Input GUI** will appear with:
+   - 📝 Clear instructions and examples
+   - 📏 Large, scrollable input field for long Google Sheets URLs
+   - 📚 Step-by-step setup guide for making your sheet accessible
+   - 💾 Automatic URL caching (remembers your last URL)
+   - 🗑️ Clear cache option
+   - ✅ Options to proceed, cancel, or use test mode
 3. Enter your Google Sheets URL when prompted
 4. The simulator will parse the URL and load your battle data
 5. If loading fails, you can choose to use test mode instead
-6. **Battle Interface Features**:
-   - **Debug Toggle**: Click "開啟DEBUG" to see detailed combat information
-   - **Auto-Play Mode**: Click "自動播放" to automatically continue battle every 2 seconds
-   - **Manual Control**: Use Continue button or press any key to proceed manually
-   - **End Battle**: Stop the simulation at any time
-7. Follow the on-screen instructions to run the battle simulation
+6. **Enhanced Battle Interface Features**:
+   - **🐛 Debug Toggle**: Click "開啟DEBUG"/"關閉DEBUG" to see detailed combat calculations
+   - **⚡ Auto-Play Mode**: Click "自動播放"/"停止自動" for automatic progression (2-second intervals)
+   - **🎮 Manual Control**: Use Continue button or press any key to proceed step-by-step
+   - **🛑 End Battle**: Stop the simulation at any time
+   - **📊 Real-time Map**: Visual representation with unit positions, HP, status effects
+   - **📍 Movement Paths**: See unit movement with highlighted paths
+   - **💀 Dead Unit Display**: Shows "被擊毀" with overkill damage for eliminated units
+7. Follow the on-screen battle progression and enjoy the tactical combat!
 
 ## System Requirements
 - Python 3.7 or higher
