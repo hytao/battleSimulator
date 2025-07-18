@@ -1864,7 +1864,7 @@ def Action(attacker, allies, enemies):
         # === 自我防禦判斷 ===
         can_counter = distance(target, attacker) <= target.longest_weapon_range
         dmg_if_defend = damageCalculation(attacker, target, use_max_weapon, "防禦", action_log=action_log)
-        if dmg_if_defend < target.current_hp and not can_counter:
+        if dmg_if_defend < target.current_hp or not can_counter:
             defense_type = "防禦"
             stage_info = f"{attacker.name} 攻擊 {target.name} (防禦中)"
             log_action(action_log, f"{target.name} 選擇防禦")
@@ -1877,7 +1877,7 @@ def Action(attacker, allies, enemies):
         return True
 
     # === 支援攻擊選擇 (優化版) ===
-    valid_support = optimize_support_attacks(attacker, allies, real_target, defense_type, action_log)
+    valid_support = optimize_support_attacks(attacker, allies, target, real_target, defense_type, action_log)
 
     # Stage 4: Damage resolution
     stage_info = f"傷害計算中 - {attacker.name} vs {real_target.name}"
@@ -2122,22 +2122,22 @@ def find_optimal_support_combination(main_attacker, potential_supporters, target
     action_log.append(f"[DEBUG] 無法保證擊殺，使用全部支援者，總傷害={total_damage}")
     return all_supporters, False, main_damage
 
-def optimize_support_attacks(attacker, allies, real_target, defense_type, action_log):
+def optimize_support_attacks(attacker, allies, initial_target, real_target, defense_type, action_log):
     """Optimized support attack selection logic - minimizes total damage while guaranteeing kill"""
     all_support = [
         unit for unit in allies
         if unit.current_hp > 0 and unit != attacker
         and unit.pilot.support_attack >  0
-        and distance(unit, real_target) <= unit.longest_weapon_range
+        and distance(unit, initial_target) <= unit.longest_weapon_range
     ]
     
     if not all_support:
-        action_log.append(f"[DEBUG] 沒有可用的支援攻擊單位")
+        action_log.append(f"[DEBUG] 沒有可用的支援攻擊單位 (距離計算目標: {initial_target.name})")
         return []
     
     # Debug: Show available support units and their remaining counts
     support_info = [(u.name, u.pilot.support_attack) for u in all_support]
-    action_log.append(f"[DEBUG] 可用支援攻擊單位: {support_info}")
+    action_log.append(f"[DEBUG] 可用支援攻擊單位 (距離計算目標: {initial_target.name}): {support_info}")
     
     # Find optimal combination
     selected_supporters, guaranteed_kill, main_damage = find_optimal_support_combination(
@@ -2272,18 +2272,28 @@ def update_vigor_after_combat(attacker, real_target, target, valid_support, vali
     action_log.append(f"[DEBUG] === 士氣更新完成 ===")
 
 def main():
-    """Main function to run the battle simulator"""
-    print("=== 戰術RPG戰鬥模擬器 ===")
+    """Main function to run the battle simulator with restart capability"""
+    while True:
+        print("=== 戰術RPG戰鬥模擬器 ===")
+        
+        # Get Google Sheets URL from user
+        print("請輸入您的Google試算表連結...")
+        sheet_id, gid = get_google_sheets_url()
+        
+        if not sheet_id or not gid:
+            print("未提供有效的Google試算表連結，使用測試模式...")
+            battle_result = run_test_battle()
+        else:
+            battle_result = run_online_battle(sheet_id, gid)
+        
+        # After battle completion, ask user if they want to continue
+        if not ask_continue_or_exit():
+            break
     
-    # Get Google Sheets URL from user
-    print("請輸入您的Google試算表連結...")
-    sheet_id, gid = get_google_sheets_url()
-    
-    if not sheet_id or not gid:
-        print("未提供有效的Google試算表連結，使用測試模式...")
-        run_test_battle()
-        return
-    
+    print("感謝使用戰術RPG戰鬥模擬器！")
+
+def run_online_battle(sheet_id, gid):
+    """Run battle with online Google Sheets data"""
     print(f"正在載入戰鬥資料...")
     print(f"工作表ID: {sheet_id}")
     print(f"頁面ID: {gid}")
@@ -2315,16 +2325,16 @@ def main():
         if len(battleground.team_a.units) == 0:
             print("❌ 錯誤: Team A 沒有任何有效單位，無法開始戰鬥！")
             print("請檢查Google試算表中Team A單位的位置設定（必須為1-5且不能重複）")
-            return
+            return False
         
         if len(battleground.team_b.units) == 0:
             print("❌ 錯誤: Team B 沒有任何有效單位，無法開始戰鬥！")
             print("請檢查Google試算表中Team B單位的位置設定（必須為1-5且不能重複）")
-            return
+            return False
         
         # Start the battle simulation
         print("\n=== 戰鬥開始 ===")
-        run_battle_simulation(battleground)
+        return run_battle_simulation(battleground)
         
     except Exception as e:
         print(f"錯誤: 無法載入戰鬥資料")
@@ -2341,10 +2351,23 @@ def main():
         root.destroy()
         
         if use_test:
-            run_test_battle()
+            return run_test_battle()
         else:
             print("程式結束")
-            return
+            return False
+
+def ask_continue_or_exit():
+    """Ask user if they want to continue with another battle or exit"""
+    root = tk.Tk()
+    root.withdraw()
+    
+    continue_battle = messagebox.askyesno(
+        "戰鬥完成",
+        "戰鬥已結束！\n\n是否要開始新的戰鬥？\n\n點擊「是」返回主選單\n點擊「否」退出程式"
+    )
+    
+    root.destroy()
+    return continue_battle
 
 def run_battle_simulation(battleground):
     """Run the main battle simulation loop"""
@@ -2406,7 +2429,8 @@ def run_battle_simulation(battleground):
             
             if battle_ended is True:
                 print("\n戰鬥被使用者終止")
-                return
+                close_battle_window()
+                return True
             
             # Check win conditions again after each action - exclude removed units
             team_a_alive = [unit for unit in battleground.team_a.units 
@@ -2422,8 +2446,9 @@ def run_battle_simulation(battleground):
     if round_number > max_rounds:
         print(f"\n戰鬥達到最大回合數 ({max_rounds})，以平局結束")
     
-    # Close the battle window
+    # Close the battle window but don't exit the program
     close_battle_window()
+    return True
 
 def run_test_battle():
     """Run a test battle with hardcoded data if online data loading fails"""
@@ -2460,7 +2485,7 @@ def run_test_battle():
     ]
     
     battleground = Battleground(test_team_a_data, test_team_b_data)
-    run_battle_simulation(battleground)
+    return run_battle_simulation(battleground)
 
 if __name__ == "__main__":
     main()
