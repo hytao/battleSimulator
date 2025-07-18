@@ -1864,12 +1864,27 @@ def Action(attacker, allies, enemies):
         # === 自我防禦判斷 ===
         can_counter = distance(target, attacker) <= target.longest_weapon_range
         dmg_if_defend = damageCalculation(attacker, target, use_max_weapon, "防禦", action_log=action_log)
-        if dmg_if_defend < target.current_hp or not can_counter:
+        dmg_if_no_defend = damageCalculation(attacker, target, use_max_weapon, "否", action_log=action_log)
+        
+        # A unit should defend ONLY if:
+        # 1. They cannot counter attack (out of range), OR
+        # 2. They would die without defending AND defending would save them
+        would_die_without_defend = dmg_if_no_defend >= target.current_hp
+        would_survive_with_defend = dmg_if_defend < target.current_hp
+        
+        if not can_counter or (would_die_without_defend and would_survive_with_defend):
             defense_type = "防禦"
             stage_info = f"{attacker.name} 攻擊 {target.name} (防禦中)"
-            log_action(action_log, f"{target.name} 選擇防禦")
+            if not can_counter:
+                log_action(action_log, f"{target.name} 選擇防禦 - 無法反擊 (距離: {distance(target, attacker)}, 射程: {target.longest_weapon_range})")
+            else:
+                log_action(action_log, f"{target.name} 選擇防禦 - 防禦可避免死亡 (無防禦傷害: {dmg_if_no_defend}, 防禦傷害: {dmg_if_defend}, 當前HP: {target.current_hp})")
         else:
             defense_type = "否"
+            if can_counter:
+                log_action(action_log, f"{target.name} 選擇不防禦 - 可以反擊且不會死亡 (無防禦傷害: {dmg_if_no_defend}, 當前HP: {target.current_hp})")
+            else:
+                log_action(action_log, f"{target.name} 選擇不防禦 - 防禦無法避免死亡 (無防禦傷害: {dmg_if_no_defend}, 防禦傷害: {dmg_if_defend}, 當前HP: {target.current_hp})")
 
     # Show combat preparation
     battle_ended = printMap(all_units, "\n".join(action_log), active_unit=attacker, target_unit=real_target, stage_info=stage_info)
@@ -1953,25 +1968,25 @@ def Action(attacker, allies, enemies):
         can_counter = distance(target, attacker) <= target.longest_weapon_range
         target_is_defending = defense_type == "防禦"
         
-        if can_counter and not target_is_defending:
-            stage_info = f"反擊階段 - {target.name} vs {attacker.name}"
-            battle_ended = printMap(all_units, "\n".join(action_log), active_unit=target, target_unit=attacker, 
-                                   stage_info=stage_info, dead_units=dead_units)
-            if battle_ended:
-                return True
-                
-            counter_defense_type = "否"
-            valid_counter = optimize_counter_attacks(target, enemies, attacker, counter_defense_type, action_log)
-        elif target_is_defending:
+        # Support counter attacks can happen even if target cannot counter or is defending
+        stage_info = f"反擊階段 - {target.name} vs {attacker.name}"
+        battle_ended = printMap(all_units, "\n".join(action_log), active_unit=target, target_unit=attacker, 
+                               stage_info=stage_info, dead_units=dead_units)
+        if battle_ended:
+            return True
+            
+        counter_defense_type = "否"
+        valid_counter = optimize_counter_attacks(target, enemies, attacker, counter_defense_type, action_log)
+        
+        # Log why target itself cannot counter (if applicable)
+        if target_is_defending:
             log_action(action_log, f"{target.name} 無法反擊 - 選擇防禦")
-            valid_counter = []
-        else:
+        elif not can_counter:
             log_action(action_log, f"{target.name} 無法反擊 - 攻擊者超出射程範圍 (距離: {distance(target, attacker)}, 射程: {target.longest_weapon_range})")
-            valid_counter = []
 
-        # Execute counter support attacks
+        # Execute counter support attacks (can happen regardless of target's ability to counter)
         attacker_killed_by_counter_support = False
-        if can_counter and not target_is_defending:
+        if valid_counter:
             for unit in valid_counter:
                 attacker_hp_before = attacker.current_hp
                 dmg, debug_info = damageCalculation(unit, attacker, True, counter_defense_type, return_debug_info=True, action_log=action_log)
@@ -1993,7 +2008,8 @@ def Action(attacker, allies, enemies):
                     attacker_killed_by_counter_support = True
                     break
 
-            # Main counter attack always happens when target can counter, even if attacker is already dead
+        # Main counter attack only happens when target can counter (within range AND not defending)
+        if can_counter and not target_is_defending:
             attacker_hp_before = attacker.current_hp
             dmg, debug_info = damageCalculation(target, attacker, True, counter_defense_type, return_debug_info=True, action_log=action_log)
             
@@ -2019,7 +2035,7 @@ def Action(attacker, allies, enemies):
                 # Don't apply status effects to dead units
                 log_action(action_log, f"{target.name} 反擊已死亡的 {attacker.name} 造成 {dmg} 傷害 (過度傷害)")
                 log_debug(action_log, f"基礎傷害: {debug_info['baseDamage']}, 武器: {debug_info['weapon_power']}, ATK: {debug_info['attackerUnitAtk']}, DEF: {debug_info['defenderUnitDef']}, charAtk: {debug_info['attackerCharacterAtk']}, charDef: {debug_info['defenderCharacterDef']}, totalDamageMultiplierPercent: {debug_info['totalDamageMultiplierPercent']}, 過度傷害: {attacker.overkill_damage}")
-        # If target cannot counter, skip all counter attacks
+        # If target cannot counter, skip main counter attack but support counter attacks already executed above
     else:
         # No counter attack if target is dead
         valid_counter = []
@@ -2210,8 +2226,10 @@ def update_vigor_after_combat(attacker, real_target, target, valid_support, vali
     # Track combat results
     target_killed = real_target.current_hp <= 0
     attacker_killed = attacker.current_hp <= 0
-    # Counter only happens if target survives AND can reach attacker AND not defending
-    counter_attack_occurred = not target_killed and distance(target, attacker) <= target.longest_weapon_range and defense_type != "防禦"
+    # Main counter attack only happens if target survives AND can reach attacker AND not defending
+    main_counter_attack_occurred = not target_killed and distance(target, attacker) <= target.longest_weapon_range and defense_type != "防禦"
+    # Support counter attacks can happen as long as target is not killed (regardless of main counter conditions)
+    support_counter_attacks_occurred = not target_killed and len(valid_counter) > 0
     
     # Calculate vigor changes for each unit
     vigor_changes = {}
@@ -2225,7 +2243,7 @@ def update_vigor_after_combat(attacker, real_target, target, valid_support, vali
     # 1. For unit that performs attack or counter attack: increase 1 vigor
     add_vigor_change(attacker, 1, "進行攻擊")
     
-    if counter_attack_occurred:
+    if main_counter_attack_occurred:
         add_vigor_change(target, 1, "進行反擊")
     
    
@@ -2235,9 +2253,11 @@ def update_vigor_after_combat(attacker, real_target, target, valid_support, vali
     attacks_on_target = 1 + len(valid_support)
     add_vigor_change(real_target, -attacks_on_target, f"受到 {attacks_on_target} 次攻擊")
     
-    # Attacker receives counter attacks (only if counter attack occurred)
-    if counter_attack_occurred:
-        counter_attacks_on_attacker = 1 + len(valid_counter)
+    # Attacker receives counter attacks (if any counter attacks occurred)
+    if support_counter_attacks_occurred or main_counter_attack_occurred:
+        counter_attacks_on_attacker = len(valid_counter)
+        if main_counter_attack_occurred:
+            counter_attacks_on_attacker += 1  # Add main counter attack
         add_vigor_change(attacker, -counter_attacks_on_attacker, f"受到 {counter_attacks_on_attacker} 次反擊")
     
     # 3. For support attackers - based on combat outcomes
@@ -2269,7 +2289,7 @@ def update_vigor_after_combat(attacker, real_target, target, valid_support, vali
     if target_killed:
         add_vigor_change(attacker, 4, "擊殺敵人")
     
-    if attacker_killed and counter_attack_occurred:
+    if attacker_killed and main_counter_attack_occurred:
         add_vigor_change(target, 4, "反擊擊殺敵人")
     
     # Apply all vigor changes with bounds checking (0-12)
