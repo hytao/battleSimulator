@@ -43,7 +43,28 @@ def create_executable():
     try:
         subprocess.check_call(cmd)
         print("\n✓ Executable created successfully!")
-        print("📁 Check the 'dist' folder for 'BattleSimulator.exe'")
+        
+        # Move executable from dist folder to root folder
+        import shutil
+        dist_exe = os.path.join("dist", "BattleSimulator.exe")
+        root_exe = "BattleSimulator.exe"
+        
+        if os.path.exists(dist_exe):
+            # Remove existing exe in root if it exists
+            if os.path.exists(root_exe):
+                os.remove(root_exe)
+            
+            # Move the executable to root folder
+            shutil.move(dist_exe, root_exe)
+            print(f"📁 Executable moved to root folder: {root_exe}")
+            
+            # Clean up empty dist folder
+            if os.path.exists("dist") and not os.listdir("dist"):
+                os.rmdir("dist")
+                print("🧹 Cleaned up empty dist folder")
+        else:
+            print("⚠️  Could not find executable in dist folder")
+            
         print("🚀 You can now distribute this .exe file to run the simulator without Python!")
     except subprocess.CalledProcessError as e:
         print(f"❌ Error creating executable: {e}")
@@ -55,7 +76,7 @@ def cleanup_build_files():
     """Clean up temporary build files"""
     import shutil
     
-    for folder in ["build", "__pycache__"]:
+    for folder in ["build", "dist", "__pycache__"]:
         if os.path.exists(folder):
             shutil.rmtree(folder)
             print(f"🧹 Cleaned up {folder}/")
@@ -79,7 +100,7 @@ if __name__ == "__main__":
         if success:
             print("\n=== Build Complete ===")
             print("📋 What you get:")
-            print("  • dist/BattleSimulator.exe - Standalone executable")
+            print("  • BattleSimulator.exe - Standalone executable in root folder")
             print("  • No Python installation required on target machines")
             print("  • All dependencies included")
             

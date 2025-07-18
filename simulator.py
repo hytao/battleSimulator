@@ -757,17 +757,30 @@ def move(attacker, target, can_attack, action_log, all_units):
                 dr = r - attacker.row
                 dc = c - attacker.col
                 
-                # Calculate which primary direction this move represents
-                if abs(dc) > abs(dr):  # Horizontal movement is primary
-                    if dc < 0:  # Left
+                # Prefer pure directional movement over mixed movement
+                # First, check if it's pure movement (only one direction)
+                if dr == 0 and dc != 0:  # Pure horizontal movement
+                    if dc < 0:  # Pure left
                         return 0
-                    else:  # Right
+                    else:  # Pure right
                         return 3
-                else:  # Vertical movement is primary
-                    if dr < 0:  # Up
+                elif dc == 0 and dr != 0:  # Pure vertical movement
+                    if dr < 0:  # Pure up
                         return 1
-                    else:  # Down
+                    else:  # Pure down
                         return 2
+                else:  # Mixed movement - use primary direction but with penalty
+                    base_penalty = 10  # Penalty for mixed movement
+                    if abs(dc) > abs(dr):  # Horizontal movement is primary
+                        if dc < 0:  # Left primary
+                            return base_penalty + 0
+                        else:  # Right primary
+                            return base_penalty + 3
+                    else:  # Vertical movement is primary
+                        if dr < 0:  # Up primary
+                            return base_penalty + 1
+                        else:  # Down primary
+                            return base_penalty + 2
             
             # Sort by: 1) minimum movement, 2) minimum attack distance, 3) direction preference
             valid_positions.sort(key=lambda x: (x['movement_required'], x['attack_distance'], calculate_direction_preference(x)))
